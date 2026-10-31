@@ -1,0 +1,37 @@
+{
+  "name": "inventory-management-pdf-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone HTML-to-PDF rendering service",
+  "main": "dist/src/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
+    "start": "node --env-file-if-exists=.env dist/src/server.js",
+    "test": "npm run build && node --test dist/test/app.test.js dist/test/renderer.test.js",
+    "test:integration": "npm run build && node --test dist/test/integration.test.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.md\" package.json eslint.config.mjs tsconfig.json",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"*.md\" package.json eslint.config.mjs tsconfig.json",
+    "check": "npm run lint && npm run format:check && npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "playwright": "1.56.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.19.0",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "3.9.10",
+    "tsc-alias": "^1.8.16",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
+  }
+}
