@@ -1,6 +1,6 @@
 import { ERROR_MESSAGES } from '@/errors';
-
-export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
+import { LOG_LEVELS, type LogLevel } from '@/types/log-level';
+import type { ServiceConfig } from '@/types/service-config';
 
 export const DEFAULTS = Object.freeze({
   port: 3000,
@@ -12,18 +12,8 @@ export const DEFAULTS = Object.freeze({
   logLevel: 'info',
 });
 
-export type LogLevel = (typeof LOG_LEVELS)[number];
-
-export interface ServiceConfig {
-  readonly token: string;
-  readonly port: number;
-  readonly host: string;
-  readonly renderTimeoutMs: number;
-  readonly maxHtmlBytes: number;
-  readonly maxConcurrentRenders: number;
-  readonly maxRenderQueue: number;
-  readonly logLevel: LogLevel;
-}
+export { LOG_LEVELS, type LogLevel } from '@/types/log-level';
+export type { ServiceConfig } from '@/types/service-config';
 
 function positiveInteger(
   value: string | undefined,

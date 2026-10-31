@@ -1,41 +1,7 @@
-export enum ErrorCode {
-  Unauthorized = 'UNAUTHORIZED',
-  UnsupportedMediaType = 'UNSUPPORTED_MEDIA_TYPE',
-  InvalidRequest = 'INVALID_REQUEST',
-  InvalidOptions = 'INVALID_OPTIONS',
-  CapacityExceeded = 'CAPACITY_EXCEEDED',
-  RendererUnavailable = 'RENDERER_UNAVAILABLE',
-  PayloadTooLarge = 'PAYLOAD_TOO_LARGE',
-  InvalidJson = 'INVALID_JSON',
-  InternalError = 'INTERNAL_ERROR',
-  NotFound = 'NOT_FOUND',
-  RenderTimeout = 'RENDER_TIMEOUT',
-  RenderFailed = 'RENDER_FAILED',
-}
-
-export enum HttpStatus {
-  Ok = 200,
-  BadRequest = 400,
-  Unauthorized = 401,
-  NotFound = 404,
-  PayloadTooLarge = 413,
-  UnsupportedMediaType = 415,
-  InternalServerError = 500,
-  ServiceUnavailable = 503,
-  GatewayTimeout = 504,
-}
-
-export enum ApiEndpoint {
-  Render = '/api/v1/render',
-  HealthLive = '/health/live',
-  HealthReady = '/health/ready',
-}
-
-export enum HealthStatus {
-  Ok = 'ok',
-  Ready = 'ready',
-  NotReady = 'not_ready',
-}
+import { ErrorCode } from '@/enums/error-code';
+import { HttpStatus } from '@/enums/api';
+export { ErrorCode } from '@/enums/error-code';
+export { ApiEndpoint, HealthStatus, HttpStatus } from '@/enums/api';
 
 export const ERROR_MESSAGES = {
   unauthorized: 'error.unauthorized',

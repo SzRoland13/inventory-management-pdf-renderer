@@ -1,4 +1,7 @@
-import type { LogLevel } from '@/config';
+import type { LogLevel } from '@/types/log-level';
+import type { Logger } from '@/types/logger';
+import { LoggerEvent } from '@/enums/logger-event';
+export { LoggerEvent } from '@/enums/logger-event';
 
 const LEVELS: Record<LogLevel, number> = {
   debug: 10,
@@ -7,25 +10,7 @@ const LEVELS: Record<LogLevel, number> = {
   error: 40,
 };
 
-export enum LoggerEvent {
-  ServerStarted = 'server_started',
-  ServerShuttingDown = 'server_shutting_down',
-  StartupFailed = 'startup_failed',
-  HttpShutdownFailed = 'http_shutdown_failed',
-  BrowserShutdownFailed = 'browser_shutdown_failed',
-  BrowserLaunchFailed = 'browser_launch_failed',
-  RequestFailed = 'request_failed',
-  RenderCompleted = 'render_completed',
-  RenderFailed = 'render_failed',
-  ContextCloseFailed = 'context_close_failed',
-}
-
-export interface Logger {
-  debug?: (event: LoggerEvent, fields?: Record<string, unknown>) => void;
-  info?: (event: LoggerEvent, fields?: Record<string, unknown>) => void;
-  warn?: (event: LoggerEvent, fields?: Record<string, unknown>) => void;
-  error?: (event: LoggerEvent, fields?: Record<string, unknown>) => void;
-}
+export type { Logger } from '@/types/logger';
 
 export function createLogger(level: LogLevel = 'info'): Required<Logger> {
   const threshold = LEVELS[level] ?? LEVELS.info;

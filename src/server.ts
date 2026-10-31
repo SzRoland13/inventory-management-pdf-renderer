@@ -2,7 +2,8 @@ import http from 'node:http';
 import { createHttpApp } from '@/app';
 import { loadConfig } from '@/config';
 import { ERROR_MESSAGES } from '@/errors';
-import { createLogger, LoggerEvent } from '@/logger';
+import { createLogger } from '@/logger';
+import { LoggerEvent } from '@/enums/logger-event';
 import { createRenderer } from '@/renderer';
 
 export async function main(): Promise<void> {

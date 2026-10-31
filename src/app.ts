@@ -1,80 +1,17 @@
-import crypto from 'node:crypto';
 import express, {
   type ErrorRequestHandler,
   type Request,
   type Response,
   type NextFunction,
-  type RequestHandler,
 } from 'express';
-import {
-  ApiEndpoint,
-  ERROR_MESSAGES,
-  ErrorCode,
-  HealthStatus,
-  HttpStatus,
-  ServiceError,
-} from '@/errors';
-import type { ServiceConfig } from '@/config';
-import { LoggerEvent, type Logger } from '@/logger';
-import type { Renderer } from '@/renderer';
-
-interface AppDependencies {
-  config: ServiceConfig;
-  renderer: Pick<Renderer, 'isReady' | 'render'>;
-  logger?: Logger;
-}
-
-const BEARER_AUTHORIZATION_PATTERN = /^Bearer ([^\s]+)$/;
-
-export function safeTokenEqual(expected: string, actual: string): boolean {
-  const expectedBuffer = Buffer.from(expected);
-  const actualBuffer = Buffer.from(actual);
-
-  return (
-    expectedBuffer.length === actualBuffer.length &&
-    crypto.timingSafeEqual(expectedBuffer, actualBuffer)
-  );
-}
-
-export function createPermitPool(maxActive: number, maxQueued: number) {
-  let active = 0;
-  const queue: Array<() => void> = [];
-
-  return {
-    async acquire(): Promise<void> {
-      if (active < maxActive) {
-        active += 1;
-
-        return;
-      }
-
-      if (queue.length >= maxQueued) {
-        throw new ServiceError(
-          ErrorCode.CapacityExceeded,
-          ERROR_MESSAGES.capacityExceeded,
-          HttpStatus.ServiceUnavailable,
-        );
-      }
-
-      await new Promise<void>((resolve) => queue.push(resolve));
-    },
-    release(): void {
-      const next = queue.shift();
-
-      if (next) {
-        next();
-      } else {
-        active -= 1;
-      }
-    },
-    get active(): number {
-      return active;
-    },
-    get queued(): number {
-      return queue.length;
-    },
-  };
-}
+import { ApiEndpoint, HealthStatus, HttpStatus } from '@/enums/api';
+import { ErrorCode } from '@/enums/error-code';
+import { ERROR_MESSAGES, ServiceError } from '@/errors';
+import { requireBearerToken } from '@/helpers/auth';
+import { createPermitPool } from '@/helpers/permit-pool';
+import type { AppDependencies } from '@/types/app';
+import type { Logger } from '@/types/logger';
+import { LoggerEvent } from '@/enums/logger-event';
 
 function addSecurityHeaders(
   _request: Request,
@@ -84,26 +21,6 @@ function addSecurityHeaders(
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
   next();
-}
-
-function requireBearerToken(config: ServiceConfig): RequestHandler {
-  return (request, response, next) => {
-    const authorization = request.get('authorization') || '';
-    const match = BEARER_AUTHORIZATION_PATTERN.exec(authorization);
-
-    if (!match || !safeTokenEqual(config.token, match[1])) {
-      response.status(HttpStatus.Unauthorized).json({
-        error: {
-          code: ErrorCode.Unauthorized,
-          message: ERROR_MESSAGES.unauthorized,
-        },
-      });
-
-      return;
-    }
-
-    next();
-  };
 }
 
 function createErrorHandler(logger: Logger): ErrorRequestHandler {
