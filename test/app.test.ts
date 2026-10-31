@@ -300,3 +300,32 @@ test('configuration requires a strong token and validates bounded settings', () 
       error instanceof Error && error.message === ERROR_MESSAGES.invalidInteger,
   );
 });
+
+test('PDF size limit accepts the boundary and rejects larger output without leaking bytes', async (t) => {
+  let size = 8;
+  const baseUrl = await withServer(t, {
+    config: { maxPdfBytes: 8 },
+    renderer: {
+      isReady: () => true,
+      render: async () => Buffer.alloc(size, 'x'),
+    },
+  });
+  const request = () =>
+    renderRequest(baseUrl, JSON.stringify({ html: '<p>test</p>' }));
+  assert.equal((await request()).status, 200);
+  size = 9;
+  const oversized = await request();
+  assert.equal(oversized.status, 413);
+  assert.deepEqual(await oversized.json(), {
+    error: { code: ErrorCode.PdfTooLarge, message: ERROR_MESSAGES.pdfTooLarge },
+  });
+  size = 8;
+  assert.equal((await request()).status, 200);
+  assert.equal(
+    loadConfig({ RENDERER_API_TOKEN: TOKEN, MAX_PDF_BYTES: '8' }).maxPdfBytes,
+    8,
+  );
+  assert.throws(() =>
+    loadConfig({ RENDERER_API_TOKEN: TOKEN, MAX_PDF_BYTES: '0' }),
+  );
+});

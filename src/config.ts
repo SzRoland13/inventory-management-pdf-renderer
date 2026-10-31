@@ -7,6 +7,7 @@ export const DEFAULTS = Object.freeze({
   host: '0.0.0.0',
   renderTimeoutMs: 15_000,
   maxHtmlBytes: 1_048_576,
+  maxPdfBytes: 10_485_760,
   maxConcurrentRenders: 4,
   maxRenderQueue: 16,
   logLevel: 'info',
@@ -58,6 +59,7 @@ export function loadConfig(
       DEFAULTS.renderTimeoutMs,
     ),
     maxHtmlBytes: positiveInteger(env.MAX_HTML_BYTES, DEFAULTS.maxHtmlBytes),
+    maxPdfBytes: positiveInteger(env.MAX_PDF_BYTES, DEFAULTS.maxPdfBytes),
     maxConcurrentRenders: positiveInteger(
       env.MAX_CONCURRENT_RENDERS,
       DEFAULTS.maxConcurrentRenders,

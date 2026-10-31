@@ -156,6 +156,14 @@ export function createApp({
           permits.release();
         }
 
+        if (pdf.length > config.maxPdfBytes) {
+          throw new ServiceError(
+            ErrorCode.PdfTooLarge,
+            ERROR_MESSAGES.pdfTooLarge,
+            HttpStatus.PayloadTooLarge,
+          );
+        }
+
         logger.info?.(LoggerEvent.RenderCompleted, {
           durationMs: Date.now() - startedAt,
           pdfBytes: pdf.length,

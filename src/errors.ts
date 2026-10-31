@@ -11,6 +11,7 @@ export const ERROR_MESSAGES = {
   capacityExceeded: 'error.capacityExceeded',
   rendererUnavailable: 'error.rendererUnavailable',
   payloadTooLarge: 'error.payloadTooLarge',
+  pdfTooLarge: 'error.pdfTooLarge',
   invalidJson: 'error.invalidJson',
   generic: 'error.generic',
   notFound: 'error.notFound',

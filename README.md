@@ -71,7 +71,7 @@ The Docker image compiles TypeScript in a build stage and runs only compiled Jav
 
 ```sh
 docker build -t inventory-management-pdf-renderer .
-docker run --rm -p 3000:3000 \
+docker run --rm --memory=1g --memory-swap=1g --cpus=2 --pids-limit=256 -p 3000:3000 \
   -e RENDERER_API_TOKEN="$RENDERER_API_TOKEN" \
   inventory-management-pdf-renderer
 ```
@@ -92,3 +92,7 @@ npm run build            # Compile TypeScript and rewrite path aliases for Node.
 npm test                 # Build, then API, validation, and configuration tests
 npm run test:integration # Build and start Chromium; requires installed Playwright Chromium
 ```
+
+## Resource budget
+
+`MAX_PDF_BYTES` limits successful PDF responses to 10 MiB (10485760 bytes) by default. Larger outputs return HTTP 413 with `PDF_TOO_LARGE` / `error.pdfTooLarge`; callers should reduce the document rather than retry unchanged input. The limit is checked after Chromium generates the PDF, so it does not cap rendering memory. The container command above applies a 1 GiB memory limit (no additional swap), two CPUs, and 256 processes/threads. Apply equivalent limits in your deployment platform and tune them with representative documents and configured concurrency. Memory exhaustion can terminate the container; configure restart handling and bounded caller retries.

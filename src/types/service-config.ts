@@ -6,6 +6,7 @@ export interface ServiceConfig {
   readonly host: string;
   readonly renderTimeoutMs: number;
   readonly maxHtmlBytes: number;
+  readonly maxPdfBytes: number;
   readonly maxConcurrentRenders: number;
   readonly maxRenderQueue: number;
   readonly logLevel: LogLevel;
