@@ -1,0 +1,15 @@
+export enum ErrorCode {
+  Unauthorized = 'UNAUTHORIZED',
+  UnsupportedMediaType = 'UNSUPPORTED_MEDIA_TYPE',
+  InvalidRequest = 'INVALID_REQUEST',
+  InvalidOptions = 'INVALID_OPTIONS',
+  CapacityExceeded = 'CAPACITY_EXCEEDED',
+  RendererUnavailable = 'RENDERER_UNAVAILABLE',
+  PayloadTooLarge = 'PAYLOAD_TOO_LARGE',
+  PdfTooLarge = 'PDF_TOO_LARGE',
+  InvalidJson = 'INVALID_JSON',
+  InternalError = 'INTERNAL_ERROR',
+  NotFound = 'NOT_FOUND',
+  RenderTimeout = 'RENDER_TIMEOUT',
+  RenderFailed = 'RENDER_FAILED',
+}
