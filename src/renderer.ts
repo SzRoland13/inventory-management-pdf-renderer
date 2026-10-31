@@ -18,6 +18,27 @@ export function createRenderer({
   let browser: Browser | undefined;
   let closing = false;
   let launchPromise: Promise<Browser> | undefined;
+  let recoveryTimer: NodeJS.Timeout | undefined;
+  let recoveryAttempts = 0;
+
+  function scheduleRecovery(delayMs = 1000): void {
+    if (closing || recoveryAttempts >= 5 || recoveryTimer) {
+      return;
+    }
+
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = undefined;
+      recoveryAttempts += 1;
+      void start()
+        .then(() => {
+          recoveryAttempts = 0;
+        })
+        .catch(() =>
+          scheduleRecovery(Math.min(1000 * 2 ** recoveryAttempts, 10_000)),
+        );
+    }, delayMs);
+    recoveryTimer.unref?.();
+  }
 
   async function start(): Promise<Browser> {
     if (browser?.isConnected()) {
@@ -33,6 +54,8 @@ export function createRenderer({
             if (browser === nextBrowser) {
               browser = undefined;
               launchPromise = undefined;
+
+              scheduleRecovery();
             }
           });
 
@@ -139,16 +162,32 @@ export function createRenderer({
         ERROR_MESSAGES.renderFailed,
       );
     } finally {
-      await context?.close().catch((error: unknown) =>
-        logger.warn?.(LoggerEvent.ContextCloseFailed, {
-          errorName: error instanceof Error ? error.name : 'Error',
-        }),
-      );
+      if (context) {
+        try {
+          await withTimeout(context.close(), timeoutMs);
+        } catch (error) {
+          logger.warn?.(LoggerEvent.ContextCloseFailed, {
+            errorName: error instanceof Error ? error.name : 'Error',
+          });
+
+          if (
+            error instanceof ServiceError &&
+            error.code === ErrorCode.RenderTimeout
+          ) {
+            void browser?.close().catch(() => undefined);
+            browser = undefined;
+          }
+        }
+      }
     }
   }
 
   async function close(): Promise<void> {
     closing = true;
+
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+    }
 
     if (launchPromise) {
       try {
