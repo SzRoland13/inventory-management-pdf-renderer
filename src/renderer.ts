@@ -99,14 +99,18 @@ export function createRenderer({
     }
 
     if (!browser?.isConnected()) {
+      const startup = start();
+      const awaitedLaunch = launchPromise;
       try {
-        await withTimeout(start(), remaining());
+        await withTimeout(startup, remaining());
       } catch (error) {
         if (
           error instanceof ServiceError &&
           error.code === ErrorCode.RenderTimeout
         ) {
-          launchPromise = undefined;
+          if (launchPromise === awaitedLaunch) {
+            launchPromise = undefined;
+          }
           throw error;
         }
 

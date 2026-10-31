@@ -96,3 +96,68 @@ test('browser launch failures return a retryable renderer error', async () => {
       error.message === ERROR_MESSAGES.rendererUnavailable,
   );
 });
+
+test('an older waiter timeout cannot invalidate a replacement launch', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const launches: Array<(browser: Browser) => void> = [];
+  let closed = 0;
+  const browser = {
+    isConnected: () => true,
+    on() {
+      return this;
+    },
+    async close() {
+      closed += 1;
+    },
+    async newContext() {
+      return {
+        async route() {},
+        async close() {},
+        async newPage() {
+          return {
+            async setContent() {},
+            async pdf() {
+              return Buffer.from('%PDF-1.7');
+            },
+          };
+        },
+      };
+    },
+  } as unknown as Browser;
+  const renderer = createRenderer({
+    timeoutMs: 100,
+    launch: () => new Promise<Browser>((resolve) => launches.push(resolve)),
+  });
+  t.after(() => renderer.close());
+  const first = assert.rejects(renderer.render('first'), {
+    code: ErrorCode.RenderTimeout,
+  });
+  await flush();
+  t.mock.timers.tick(25);
+  const second = assert.rejects(renderer.render('second'), {
+    code: ErrorCode.RenderTimeout,
+  });
+  await flush();
+  t.mock.timers.tick(75);
+  await first;
+  const replacement = renderer.render('replacement');
+  await flush();
+  assert.equal(launches.length, 2);
+  t.mock.timers.tick(25);
+  await second;
+  launches[1](browser);
+  assert.equal((await replacement).toString(), '%PDF-1.7');
+  assert.equal(closed, 0);
+  // A late result from the abandoned launch is disposed without affecting readiness.
+  let abandonedClosed = false;
+  launches[0]({
+    async close() {
+      abandonedClosed = true;
+    },
+  } as unknown as Browser);
+  await flush();
+  assert.equal(abandonedClosed, true);
+  assert.equal(closed, 0);
+  assert.equal(renderer.isReady(), true);
+});
