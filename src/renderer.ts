@@ -10,6 +10,8 @@ export { validatePdfOptions } from '@/helpers/pdf-options';
 export type { PdfOptions } from '@/types/pdf';
 export type { Renderer } from '@/types/renderer';
 
+const CONTEXT_CLEANUP_TIMEOUT_MS = 1_000;
+
 export function createRenderer({
   timeoutMs = 15_000,
   logger = console,
@@ -180,6 +182,14 @@ export function createRenderer({
         throw error;
       }
 
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new ServiceError(
+          ErrorCode.RenderTimeout,
+          ERROR_MESSAGES.renderTimeout,
+          HttpStatus.GatewayTimeout,
+        );
+      }
+
       logger.error?.(LoggerEvent.RenderFailed, {
         errorName: error instanceof Error ? error.name : 'Error',
       });
@@ -191,7 +201,7 @@ export function createRenderer({
     } finally {
       if (context) {
         try {
-          await withTimeout(context.close(), remaining());
+          await withTimeout(context.close(), CONTEXT_CLEANUP_TIMEOUT_MS);
         } catch (error) {
           logger.warn?.(LoggerEvent.ContextCloseFailed, {
             errorName: error instanceof Error ? error.name : 'Error',
