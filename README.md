@@ -1,6 +1,16 @@
 # PDF Renderer
 
-Standalone HTML-to-PDF service for the Inventory Management platform. It uses Node.js, TypeScript, Express, Playwright, and Chromium. Source imports use the `@/*` alias configured in `tsconfig.json`; the build rewrites aliases so compiled JavaScript runs directly in Node.js. It has no connection to Inventory Management business data or persistence.
+PDF Renderer is a small, stateless HTTP service that turns caller-supplied HTML into PDF documents. It is designed to run alongside backend applications that need browser-quality output for invoices, reports, labels, statements, and other printable documents.
+
+The service accepts a complete HTML document, renders it in headless Chromium through Playwright, and returns the generated PDF bytes in the response. It has no knowledge of the caller's business domain: it does not fetch records, build templates, store jobs or PDFs, or connect to application databases. The caller owns document data, HTML generation, persistence, and any retry policy.
+
+## How it works
+
+The Node.js 22+ application is written in TypeScript and uses Express for HTTP handling and Playwright to control Chromium. At startup it validates configuration, starts the browser, and then begins listening for requests. Each render receives an isolated browser context with JavaScript disabled. The renderer allows only `data:` and `about:blank` browser requests, so documents must include their required assets inline and cannot load remote resources or local files.
+
+Requests pass through bearer-token authentication, JSON parsing and size limits, input validation, and a bounded concurrency queue before reaching Chromium. A render deadline covers browser startup and page generation. The browser context is closed after each request; if Chromium disconnects, the service attempts to recover it. On shutdown, the HTTP server stops accepting connections and the browser is closed.
+
+The service is stateless between requests. It does not retain submitted HTML or generated PDFs. Structured logs report operational events, durations, byte counts, and error codes without recording HTML or the bearer token.
 
 ## Run locally
 
@@ -15,13 +25,13 @@ npm run build
 npm start
 ```
 
-The service listens on port 3000 by default. Set the environment variables in `.env.example` to configure the listener, credentials, timeouts, payload size, concurrency, and queue size. Keep the bearer token secret and expose the service only on a trusted internal network protected by TLS.
+The server listens on `0.0.0.0:3000` by default. Configure it with environment variables (see [Configuration](#configuration)). The `start` script loads `.env` when present.
 
-## API v1
+## Render API
 
-`POST /api/v1/render` requires `Authorization: Bearer <token>` and `Content-Type: application/json`.
+### `POST /api/v1/render`
 
-Example request:
+Requires `Authorization: Bearer <token>` and `Content-Type: application/json`. The JSON body must contain a non-empty `html` string. An optional `options` object controls the printed page.
 
 ```json
 {
@@ -42,57 +52,79 @@ Example request:
 }
 ```
 
-Supported page formats are `A3`, `A4`, `A5`, `Letter`, `Legal`, and `Tabloid`. Margins use `mm`, `cm`, `in`, or `px`, up to 1000 units each. Header/footer templates are optional strings up to 32 KiB; enable `displayHeaderFooter` to use them. Chromium prints backgrounds. Responses are raw PDF bytes (`application/pdf`) with an inline `rendered.pdf` filename.
+Supported options:
 
-Errors use this JSON shape and a matching HTTP status:
+- `format`: `A3`, `A4`, `A5`, `Letter`, `Legal`, or `Tabloid`; Chromium defaults to A4.
+- `landscape`: boolean page orientation.
+- `margin`: optional `top`, `right`, `bottom`, and `left` values, each using `mm`, `cm`, `in`, or `px` and no more than 1000 units.
+- `displayHeaderFooter`: boolean. Must be `true` when supplying either template.
+- `headerTemplate` and `footerTemplate`: optional strings up to 32 KiB each. Chromium supports placeholders such as `pageNumber` and `totalPages` through template classes.
+
+Unknown option names and invalid values are rejected. Chromium prints backgrounds. A successful response is `200 application/pdf` with an inline filename of `rendered.pdf`; callers should save the response body as binary data.
+
+### Errors
+
+Failures use a JSON envelope and an HTTP status appropriate to the error:
 
 ```json
 { "error": { "code": "RENDER_TIMEOUT", "message": "error.renderTimeout" } }
 ```
 
-Error `message` values are localization keys defined in `src/errors.ts`; they are not prose. Callers can map them to localized text. The common code-to-key pairs are `UNAUTHORIZED` → `error.unauthorized`, `UNSUPPORTED_MEDIA_TYPE` → `error.unsupportedMediaType`, `INVALID_REQUEST` → `error.invalidRequest`, `INVALID_OPTIONS` → `error.invalidOptions`, `INVALID_JSON` → `error.invalidJson`, `PAYLOAD_TOO_LARGE` → `error.payloadTooLarge`, `CAPACITY_EXCEEDED` → `error.capacityExceeded`, `RENDERER_UNAVAILABLE` → `error.rendererUnavailable`, `RENDER_TIMEOUT` → `error.renderTimeout`, `RENDER_FAILED` → `error.renderFailed`, `INTERNAL_ERROR` → `error.generic`, and `NOT_FOUND` → `error.notFound`. Error responses do not include submitted HTML or browser internals.
+The `message` field is a localization key, not user-facing prose. Applications can map it to localized text. Common codes include `UNAUTHORIZED`, `UNSUPPORTED_MEDIA_TYPE`, `INVALID_REQUEST`, `INVALID_OPTIONS`, `INVALID_JSON`, `PAYLOAD_TOO_LARGE`, `PDF_TOO_LARGE`, `CAPACITY_EXCEEDED`, `RENDERER_UNAVAILABLE`, `RENDER_TIMEOUT`, `RENDER_FAILED`, `INTERNAL_ERROR`, and `NOT_FOUND`. Error responses do not include submitted HTML or browser internals.
 
-The default HTML request limit is 1 MiB. A render has a 15-second timeout, with four active renders and up to 16 waiting requests by default. A full queue returns `CAPACITY_EXCEEDED`; callers can retry transient capacity or renderer failures. Limits are configurable through environment variables.
+An HTML body over the configured request limit or a generated PDF over the output limit returns `413`. A full render queue returns `CAPACITY_EXCEEDED`; transient capacity, timeout, and renderer availability errors may be retried by the caller using a bounded retry policy. `PDF_TOO_LARGE` is checked after Chromium has generated the output, so it limits response size but does not cap memory used during generation.
 
-### Input security
+## Health endpoints
 
-Submit complete HTML and CSS. JavaScript is disabled. Embed required images or fonts with `data:` URLs. The renderer blocks every browser request except `data:` and `about:blank`, including external network URLs and `file:` URLs. Do not include credentials or sensitive data in HTML that should not be rendered. Logs record operational events and error codes only; they never include HTML or the bearer token.
+- `GET /health/live` returns `200` while the process is responding.
+- `GET /health/ready` returns `200` after Chromium is connected, or `503` while the renderer is unavailable.
 
-## Health checks
+Health endpoints do not require authentication. Use liveness to detect a stuck or stopped process and readiness to decide whether it can accept render traffic.
 
-- `GET /health/live` returns `200` while the process responds.
-- `GET /health/ready` returns `200` after Chromium starts, otherwise `503`.
+## Configuration
 
-Neither endpoint requires authentication. The process handles `SIGTERM` and `SIGINT` by closing HTTP connections and Chromium.
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PORT` | `3000` | HTTP listening port. |
+| `HOST` | `0.0.0.0` | HTTP listening interface. |
+| `RENDERER_API_TOKEN` | Required | Bearer token; must contain at least 32 characters. |
+| `RENDER_TIMEOUT_MS` | `15000` | Maximum time allowed for a render. |
+| `MAX_HTML_BYTES` | `1048576` | Maximum JSON request body size (1 MiB by default). |
+| `MAX_PDF_BYTES` | `10485760` | Maximum returned PDF size (10 MiB by default). |
+| `MAX_CONCURRENT_RENDERS` | `4` | Maximum renders executing at once. |
+| `MAX_RENDER_QUEUE` | `16` | Maximum requests waiting for a render permit; zero disables waiting. |
+| `LOG_LEVEL` | `info` | Log threshold: `debug`, `info`, `warn`, or `error`. |
 
-## Container
+Numeric limits must be positive whole numbers, except `MAX_RENDER_QUEUE`, which may be zero. The API token must be provided at startup.
 
-The Docker image compiles TypeScript in a build stage and runs only compiled JavaScript with production dependencies. The official Playwright base image matches the pinned package version and includes Chromium.
+## Security and deployment
+
+The render endpoint is protected by a shared bearer token. Keep it in a deployment secret manager, rotate it when needed, and expose the service only to trusted workloads over a network protected by TLS. The service does not render JavaScript and blocks network and `file:` access from the browser. Embed images and fonts using `data:` URLs. Avoid including credentials or sensitive content that should not appear in the generated document.
+
+The Docker image uses the Playwright base image matching the pinned Playwright package, compiles the TypeScript in a build stage, and runs the compiled service as the non-root `pwuser` account. Apply CPU, memory, and process limits in the deployment platform. For example:
 
 ```sh
-docker build -t inventory-management-pdf-renderer .
+docker build -t pdf-renderer .
 docker run --rm --memory=1g --memory-swap=1g --cpus=2 --pids-limit=256 -p 3000:3000 \
   -e RENDERER_API_TOKEN="$RENDERER_API_TOKEN" \
-  inventory-management-pdf-renderer
+  pdf-renderer
 ```
 
-Provide the token from a deployment secret manager. Terminate TLS at the internal ingress or service mesh, and restrict network access to authorized backend workloads.
+The default PDF size limit is 10 MiB, but that limit is applied after generation and does not bound Chromium's peak memory. Tune render concurrency and resource limits with representative documents. Configure restart handling for container failures and keep caller retries bounded.
 
-## Backend integration
+## Integrating with a backend
 
-IM-71 should call this endpoint from its background PDF worker, not from the business request path. Send the document HTML and explicit PDF options as JSON. On `200`, persist the response body as the generated PDF for the owning document. On an error, parse `error.code` and `error.message`; retry transient timeout, capacity, or service-unavailable responses according to the worker's bounded retry policy. The renderer does not create jobs, retain PDFs, or access document data.
+For asynchronous document generation, call the renderer from a background worker. Send the document HTML and explicit PDF options, then persist the binary body returned on `200` against the owning business record. Parse both `error.code` and `error.message` on failures and apply the worker's retry policy to transient errors. The renderer itself does not create jobs, retain results, or access application data.
 
-## Checks
+## Development commands
 
 ```sh
-npm run check            # ESLint, Prettier check, TypeScript build, and API tests
-npm run format           # Apply Prettier formatting
-npm run lint:fix         # Apply ESLint auto-fixes
-npm run build            # Compile TypeScript and rewrite path aliases for Node.js
-npm test                 # Build, then API, validation, and configuration tests
-npm run test:integration # Build and start Chromium; requires installed Playwright Chromium
+npm run build             # Compile TypeScript and rewrite import aliases
+npm test                  # Build and run API and renderer unit tests
+npm run test:integration  # Build and exercise Chromium (requires installed browser)
+npm run lint              # Run ESLint
+npm run format:check      # Check formatting
+npm run check             # Lint, formatting check, build, and unit tests
+npm run format            # Format source, tests, and Markdown
+npm run lint:fix          # Apply ESLint fixes
 ```
-
-## Resource budget
-
-`MAX_PDF_BYTES` limits successful PDF responses to 10 MiB (10485760 bytes) by default. Larger outputs return HTTP 413 with `PDF_TOO_LARGE` / `error.pdfTooLarge`; callers should reduce the document rather than retry unchanged input. The limit is checked after Chromium generates the PDF, so it does not cap rendering memory. The container command above applies a 1 GiB memory limit (no additional swap), two CPUs, and 256 processes/threads. Apply equivalent limits in your deployment platform and tune them with representative documents and configured concurrency. Memory exhaustion can terminate the container; configure restart handling and bounded caller retries.
