@@ -46,9 +46,14 @@ export function createRenderer({
     }
 
     if (!launchPromise) {
-      launchPromise = Promise.resolve()
+      const nextLaunch = Promise.resolve()
         .then(launch)
         .then((nextBrowser) => {
+          if (launchPromise !== nextLaunch || closing) {
+            void nextBrowser.close().catch(() => undefined);
+            throw new Error('Browser launch is no longer active');
+          }
+
           browser = nextBrowser;
           nextBrowser.on('disconnected', () => {
             if (browser === nextBrowser) {
@@ -62,9 +67,14 @@ export function createRenderer({
           return nextBrowser;
         })
         .catch((error: unknown) => {
-          launchPromise = undefined;
+          if (launchPromise === nextLaunch) {
+            launchPromise = undefined;
+          }
+
           throw error;
         });
+
+      launchPromise = nextLaunch;
     }
 
     return launchPromise;
@@ -74,6 +84,8 @@ export function createRenderer({
     html: string,
     rawOptions: unknown = undefined,
   ): Promise<Buffer> {
+    const deadline = Date.now() + timeoutMs;
+    const remaining = () => Math.max(0, deadline - Date.now());
     const options = validatePdfOptions(rawOptions);
 
     if (closing) {
@@ -86,8 +98,16 @@ export function createRenderer({
 
     if (!browser?.isConnected()) {
       try {
-        await start();
+        await withTimeout(start(), remaining());
       } catch (error) {
+        if (
+          error instanceof ServiceError &&
+          error.code === ErrorCode.RenderTimeout
+        ) {
+          launchPromise = undefined;
+          throw error;
+        }
+
         logger.error?.(LoggerEvent.BrowserLaunchFailed, {
           errorName: error instanceof Error ? error.name : 'Error',
         });
@@ -107,8 +127,9 @@ export function createRenderer({
         javaScriptEnabled: false,
         acceptDownloads: false,
       });
+
       try {
-        context = await withTimeout(contextPromise, timeoutMs);
+        context = await withTimeout(contextPromise, remaining());
       } catch (error) {
         if (
           error instanceof ServiceError &&
@@ -118,8 +139,10 @@ export function createRenderer({
             .then((lateContext) => lateContext.close())
             .catch(() => undefined);
         }
+
         throw error;
       }
+
       await withTimeout(
         context.route('**/*', async (route) => {
           const url = route.request().url();
@@ -130,11 +153,14 @@ export function createRenderer({
 
           return route.abort('blockedbyclient');
         }),
-        timeoutMs,
+        remaining(),
       );
-      const page = await withTimeout(context.newPage(), timeoutMs);
+      const page = await withTimeout(context.newPage(), remaining());
       const pdfPromise = (async () => {
-        await page.setContent(html, { waitUntil: 'load', timeout: timeoutMs });
+        await page.setContent(html, {
+          waitUntil: 'load',
+          timeout: remaining(),
+        });
 
         return page.pdf({
           format: options.format || 'A4',
@@ -148,7 +174,7 @@ export function createRenderer({
         });
       })();
 
-      return await withTimeout(pdfPromise, timeoutMs);
+      return await withTimeout(pdfPromise, remaining());
     } catch (error) {
       if (error instanceof ServiceError) {
         throw error;
@@ -157,6 +183,7 @@ export function createRenderer({
       logger.error?.(LoggerEvent.RenderFailed, {
         errorName: error instanceof Error ? error.name : 'Error',
       });
+
       throw new ServiceError(
         ErrorCode.RenderFailed,
         ERROR_MESSAGES.renderFailed,
@@ -164,7 +191,7 @@ export function createRenderer({
     } finally {
       if (context) {
         try {
-          await withTimeout(context.close(), timeoutMs);
+          await withTimeout(context.close(), remaining());
         } catch (error) {
           logger.warn?.(LoggerEvent.ContextCloseFailed, {
             errorName: error instanceof Error ? error.name : 'Error',
@@ -174,8 +201,11 @@ export function createRenderer({
             error instanceof ServiceError &&
             error.code === ErrorCode.RenderTimeout
           ) {
-            void browser?.close().catch(() => undefined);
+            const retiredBrowser = browser;
             browser = undefined;
+            launchPromise = undefined;
+            void retiredBrowser?.close().catch(() => undefined);
+            scheduleRecovery();
           }
         }
       }
