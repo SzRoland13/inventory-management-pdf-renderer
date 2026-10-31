@@ -123,9 +123,11 @@ export function createRenderer({
     }
 
     let context: BrowserContext | undefined;
+    let contextBrowser: Browser | undefined;
 
     try {
-      const contextPromise = browser!.newContext({
+      contextBrowser = browser!;
+      const contextPromise = contextBrowser.newContext({
         javaScriptEnabled: false,
         acceptDownloads: false,
       });
@@ -211,10 +213,11 @@ export function createRenderer({
             error instanceof ServiceError &&
             error.code === ErrorCode.RenderTimeout
           ) {
-            const retiredBrowser = browser;
-            browser = undefined;
-            launchPromise = undefined;
-            void retiredBrowser?.close().catch(() => undefined);
+            if (browser === contextBrowser) {
+              browser = undefined;
+              launchPromise = undefined;
+            }
+            void contextBrowser?.close().catch(() => undefined);
             scheduleRecovery();
           }
         }

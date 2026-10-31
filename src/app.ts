@@ -107,6 +107,14 @@ export function createApp({
     ApiEndpoint.Render,
     requireBearerToken(config),
     async (request, response, next) => {
+      const abortController = new AbortController();
+      const abortOnClose = () => {
+        if (!response.writableEnded) {
+          abortController.abort();
+        }
+      };
+      response.on('close', abortOnClose);
+
       try {
         if (!request.is('application/json')) {
           response.status(HttpStatus.UnsupportedMediaType).json({
@@ -132,7 +140,13 @@ export function createApp({
           return;
         }
 
-        await permits.acquire();
+        await permits.acquire(abortController.signal);
+
+        if (abortController.signal.aborted) {
+          permits.release();
+
+          return;
+        }
         const startedAt = Date.now();
         let pdf: Buffer;
 
@@ -153,7 +167,11 @@ export function createApp({
           .set('Content-Disposition', 'inline; filename="rendered.pdf"')
           .send(pdf);
       } catch (error) {
-        next(error);
+        if (!abortController.signal.aborted) {
+          next(error);
+        }
+      } finally {
+        response.off('close', abortOnClose);
       }
     },
   );

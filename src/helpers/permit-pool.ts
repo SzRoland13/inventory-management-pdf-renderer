@@ -4,10 +4,20 @@ import { ERROR_MESSAGES, ServiceError } from '@/errors';
 
 export function createPermitPool(maxActive: number, maxQueued: number) {
   let active = 0;
-  const queue: Array<() => void> = [];
+  type Waiter = {
+    resolve: () => void;
+    reject: (error: Error) => void;
+    signal?: AbortSignal;
+    onAbort?: () => void;
+  };
+  const queue: Waiter[] = [];
 
   return {
-    async acquire(): Promise<void> {
+    async acquire(signal?: AbortSignal): Promise<void> {
+      if (signal?.aborted) {
+        throw new Error('Permit acquisition aborted');
+      }
+
       if (active < maxActive) {
         active += 1;
 
@@ -21,13 +31,33 @@ export function createPermitPool(maxActive: number, maxQueued: number) {
           HttpStatus.ServiceUnavailable,
         );
       }
-      await new Promise<void>((resolve) => queue.push(resolve));
+      await new Promise<void>((resolve, reject) => {
+        const waiter: Waiter = { resolve, reject, signal };
+        waiter.onAbort = () => {
+          const index = queue.indexOf(waiter);
+
+          if (index !== -1) {
+            queue.splice(index, 1);
+            reject(new Error('Permit acquisition aborted'));
+          }
+        };
+        signal?.addEventListener('abort', waiter.onAbort, { once: true });
+        queue.push(waiter);
+
+        // Cover aborts that occur between the initial check and listener setup.
+        if (signal?.aborted) {
+          waiter.onAbort?.();
+        }
+      });
     },
     release(): void {
       const next = queue.shift();
 
       if (next) {
-        next();
+        if (next.onAbort) {
+          next.signal?.removeEventListener('abort', next.onAbort);
+        }
+        next.resolve();
       } else {
         active -= 1;
       }
