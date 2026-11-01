@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:v1.56.1-noble AS build
+FROM mcr.microsoft.com/playwright:v1.64.1-resolute AS build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -8,7 +8,7 @@ COPY src ./src
 COPY test ./test
 RUN npm run build
 
-FROM mcr.microsoft.com/playwright:v1.56.1-noble
+FROM mcr.microsoft.com/playwright:v1.64.1-resolute
 
 ENV NODE_ENV=production \
     PORT=3000 \
